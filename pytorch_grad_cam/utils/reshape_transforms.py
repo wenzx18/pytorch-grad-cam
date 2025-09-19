@@ -1,5 +1,19 @@
 import torch
 
+def fasterrcnn_reshape_transform_mmdet(x):
+    target_size = x[-1].size()[-2:]
+    activations = []
+    if isinstance(x, torch.Tensor):
+        x = [x]
+    for value in x:
+        activations.append(
+            torch.nn.functional.interpolate(
+                torch.abs(value),
+                target_size,
+                mode='bilinear'))
+    activations = torch.cat(activations, axis=1)
+    return activations
+
 
 def fasterrcnn_reshape_transform(x):
     target_size = x['pool'].size()[-2:]
