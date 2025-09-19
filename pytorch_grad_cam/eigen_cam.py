@@ -1,16 +1,19 @@
 from pytorch_grad_cam.base_cam import BaseCAM
-from pytorch_grad_cam.utils.svd_on_activations import get_2d_projection
+from pytorch_grad_cam.utils.svd_on_activations import get_2d_projection, get_2d_projection_tensor
 
 # https://arxiv.org/abs/2008.00299
 
 
 class EigenCAM(BaseCAM):
     def __init__(self, model, target_layers, 
-                 reshape_transform=None):
+                 reshape_transform=None,
+                 device='cpu', use_mmdet=False):
         super(EigenCAM, self).__init__(model,
                                        target_layers,
                                        reshape_transform,
-                                       uses_gradients=False)
+                                       uses_gradients=False,
+                                       device=device,
+                                       use_mmdet=use_mmdet)
 
     def get_cam_image(self,
                       input_tensor,
@@ -19,4 +22,4 @@ class EigenCAM(BaseCAM):
                       activations,
                       grads,
                       eigen_smooth):
-        return get_2d_projection(activations)
+        return get_2d_projection_tensor(activations, self.device)

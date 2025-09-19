@@ -20,12 +20,16 @@ class BaseCAM:
         uses_gradients: bool = True,
         tta_transforms: Optional[tta.Compose] = None,
         detach: bool = True,
+        device: str = 'cpu',
+        use_mmdet: bool = False,
     ) -> None:
+        self.device = device
+        model = model.to(self.device)
         self.model = model.eval()
         self.target_layers = target_layers
 
         # Use the same device as the model.
-        self.device = next(self.model.parameters()).device
+        # self.device = next(self.model.parameters()).device
         if 'hpu' in str(self.device):
             try:
                 import habana_frameworks.torch.core as htcore
@@ -36,6 +40,7 @@ class BaseCAM:
         self.reshape_transform = reshape_transform
         self.compute_input_gradient = compute_input_gradient
         self.uses_gradients = uses_gradients
+        self.use_mmdet = use_mmdet
         if tta_transforms is None:
             self.tta_transforms = tta.Compose(
                 [
@@ -47,7 +52,7 @@ class BaseCAM:
             self.tta_transforms = tta_transforms
 
         self.detach = detach
-        self.activations_and_grads = ActivationsAndGradients(self.model, target_layers, reshape_transform, self.detach)
+        self.activations_and_grads = ActivationsAndGradients(self.model, target_layers, reshape_transform, self.detach, self.use_mmdet)
 
     """ Get a vector of weights for every channel in the target layer.
         Methods that return weights channels,
@@ -89,6 +94,23 @@ class BaseCAM:
         else:
             cam = weighted_activations.sum(axis=1)
         return cam
+
+    def forward_mmdet(self, data, targets, eigen_smooth=False):
+        input_tensor = data['img'][0]
+        input_tensor = input_tensor.to(self.device)
+
+        if self.compute_input_gradient:
+            input_tensor = torch.autograd.Variable(input_tensor, requires_grad=True)
+        
+        data['img'][0] = input_tensor
+        self.outputs = outputs = self.activations_and_grads(data)
+        
+        if targets is None:
+            target_categories = np.argmax(outputs.cpu().data.numpy(), axis=-1)
+            targets = [ClassifierOutputTarget(category) for category in target_categories]
+
+        cam_per_layer = self.compute_cam_per_layer(input_tensor, targets, eigen_smooth)
+        return self.aggregate_multi_layers(cam_per_layer)
 
     def forward(
         self, input_tensor: torch.Tensor, targets: List[torch.nn.Module], eigen_smooth: bool = False
@@ -205,7 +227,8 @@ class BaseCAM:
         # Smooth the CAM result with test time augmentation
         if aug_smooth is True:
             return self.forward_augmentation_smoothing(input_tensor, targets, eigen_smooth)
-
+        if self.use_mmdet:
+            return self.forward_mmdet(input_tensor, targets, eigen_smooth)
         return self.forward(input_tensor, targets, eigen_smooth)
 
     def __del__(self):
